@@ -1,0 +1,136 @@
+version: "3"
+
+services:
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+    platform: linux/amd64
+    volumes:
+      - namenode:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=test
+    env_file:
+      - ./hadoop-hive.env
+    ports:
+      - "50070:50070"
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    platform: linux/amd64
+    volumes:
+      - datanode:/hadoop/dfs/data
+    env_file:
+      - ./hadoop-hive.env
+    environment:
+      SERVICE_PRECONDITION: "namenode:50070"
+    ports:
+      - "50075:50075"
+
+  resourcemanager:
+    image: bde2020/hadoop-resourcemanager:2.0.0-hadoop2.7.4-java8
+    platform: linux/amd64
+    environment:
+      SERVICE_PRECONDITION: "namenode:50070 datanode:50075"
+    env_file:
+      - ./hadoop-hive.env
+
+  spark:
+    image: bde2020/spark-master:2.4.0-hadoop2.7
+    platform: linux/amd64
+    environment:
+      - INIT_DAEMON_STEP=spark
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+
+  spark-worker:
+    image: bde2020/spark-worker:2.4.0-hadoop2.7
+    platform: linux/amd64
+    environment:
+      - SPARK_MASTER=spark://spark:7077
+      - INIT_DAEMON_STEP=spark-worker
+    ports:
+      - "8081:8081"
+
+  hive-server:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    platform: linux/amd64
+    env_file:
+      - ./hadoop-hive.env
+    environment:
+      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
+      SERVICE_PRECONDITION: "hive-metastore:9083"
+      HIVE_AUX_JARS_PATH: "/opt/hive/auxlib/iceberg-hive-runtime.jar"
+      HIVE_EXECUTION_ENGINE: "spark"
+    ports:
+      - "10000:10000"
+    volumes:
+      - ./iceberg-hive-runtime.jar:/opt/hive/auxlib/iceberg-hive-runtime.jar
+
+  hive-metastore:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    platform: linux/amd64
+    env_file:
+      - ./hadoop-hive.env
+    command: /opt/hive/bin/hive --service metastore
+    environment:
+      SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432 resourcemanager:8088"
+    ports:
+      - "9083:9083"
+
+  hive-metastore-postgresql:
+    image: bde2020/hive-metastore-postgresql:2.3.0
+    platform: linux/amd64
+    ports:
+      - "5432:5432"
+
+  huedb:
+    image: postgres:12.1-alpine
+    platform: linux/amd64
+    volumes:
+      - pg_data:/var/lib/postgresl/data/
+    ports:
+      - "5432"
+    env_file:
+      - ./hadoop-hive.env
+    environment:
+      SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432 resourcemanager:8088 hive-metastore:9083"
+
+  hue:
+    image: gethue/hue:4.6.0
+    platform: linux/amd64
+    environment:
+      SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432 resourcemanager:8088 hive-metastore:9083 huedb:5000"
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./hue-overrides.ini:/usr/share/hue/desktop/conf/hue-overrides.ini
+    links:
+      - huedb
+
+  superset:
+    image: apache/superset:latest
+    platform: linux/amd64
+    environment:
+      SUPERSET_ENV: production
+      SUPERSET_LOAD_EXAMPLES: "no"
+      SUPERSET_SECRET_KEY: "thisISaSECRET_1234"
+      SQLALCHEMY_DATABASE_URI: "sqlite:////var/lib/superset/superset.db"
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin
+    ports:
+      - "8088:8088"
+    volumes:
+      - superset:/var/lib/superset
+    command: >
+      /bin/bash -c "
+      superset db upgrade &&
+      superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin &&
+      superset init &&
+      superset run -h 0.0.0.0 -p 8088
+      "
+
+volumes:
+  namenode:
+  datanode:
+  pg_data:
+  superset:
