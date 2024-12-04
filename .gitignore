@@ -1,8 +1,14 @@
+# Python cache
 __pycache__/
 
+# Python virtual environment
 .venv/
+
+# Local files
 logs/
 data/
+datasets/
 dbt/
 
+# MacOS file system hidden file
 .DS_Store

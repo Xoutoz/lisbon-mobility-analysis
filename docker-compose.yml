@@ -9,7 +9,7 @@ services:
     environment:
       - CLUSTER_NAME=test
     env_file:
-      - ./hadoop-hive.env
+      - ./configs/hadoop-hive.env
     ports:
       - "50070:50070"
 
@@ -19,7 +19,7 @@ services:
     volumes:
       - datanode:/hadoop/dfs/data
     env_file:
-      - ./hadoop-hive.env
+      - ./configs/hadoop-hive.env
     environment:
       SERVICE_PRECONDITION: "namenode:50070"
     ports:
@@ -31,46 +31,13 @@ services:
     environment:
       SERVICE_PRECONDITION: "namenode:50070 datanode:50075"
     env_file:
-      - ./hadoop-hive.env
-
-  spark:
-    image: bde2020/spark-master:2.4.0-hadoop2.7
-    platform: linux/amd64
-    environment:
-      - INIT_DAEMON_STEP=spark
-    ports:
-      - "8080:8080"
-      - "7077:7077"
-
-  spark-worker:
-    image: bde2020/spark-worker:2.4.0-hadoop2.7
-    platform: linux/amd64
-    environment:
-      - SPARK_MASTER=spark://spark:7077
-      - INIT_DAEMON_STEP=spark-worker
-    ports:
-      - "8081:8081"
-
-  hive-server:
-    image: bde2020/hive:2.3.2-postgresql-metastore
-    platform: linux/amd64
-    env_file:
-      - ./hadoop-hive.env
-    environment:
-      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
-      SERVICE_PRECONDITION: "hive-metastore:9083"
-      HIVE_AUX_JARS_PATH: "/opt/hive/auxlib/iceberg-hive-runtime.jar"
-      HIVE_EXECUTION_ENGINE: "spark"
-    ports:
-      - "10000:10000"
-    volumes:
-      - ./iceberg-hive-runtime.jar:/opt/hive/auxlib/iceberg-hive-runtime.jar
+      - ./configs/hadoop-hive.env
 
   hive-metastore:
     image: bde2020/hive:2.3.2-postgresql-metastore
     platform: linux/amd64
     env_file:
-      - ./hadoop-hive.env
+      - ./configs/hadoop-hive.env
     command: /opt/hive/bin/hive --service metastore
     environment:
       SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432 resourcemanager:8088"
@@ -83,40 +50,67 @@ services:
     ports:
       - "5432:5432"
 
+  hive-server:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    platform: linux/amd64
+    depends_on:
+      - hive-metastore
+      - hive-metastore-postgresql
+      - resourcemanager
+      - datanode
+      - namenode
+    env_file:
+      - ./configs/hadoop-hive.env
+    environment:
+      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
+      SERVICE_PRECONDITION: "hive-metastore:9083"
+      HIVE_AUX_JARS_PATH: "/opt/hive/auxlib/iceberg-hive-runtime.jar"
+      HIVE_EXECUTION_ENGINE: "spark"
+    ports:
+      - "10000:10000"
+    volumes:
+      - ./configs/iceberg-hive-runtime.jar:/opt/hive/auxlib/iceberg-hive-runtime.jar
+
   huedb:
     image: postgres:12.1-alpine
     platform: linux/amd64
+    depends_on:
+      - hive-server
     volumes:
       - pg_data:/var/lib/postgresl/data/
     ports:
       - "5432"
     env_file:
-      - ./hadoop-hive.env
+      - ./configs/hadoop-hive.env
     environment:
       SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432 resourcemanager:8088 hive-metastore:9083"
 
   hue:
     image: gethue/hue:4.6.0
     platform: linux/amd64
+    depends_on:
+      - huedb
+      - hive-server
     environment:
       SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432 resourcemanager:8088 hive-metastore:9083 huedb:5000"
     ports:
       - "8888:8888"
     volumes:
-      - ./hue-overrides.ini:/usr/share/hue/desktop/conf/hue-overrides.ini
+      - ./configs/hue-overrides.ini:/usr/share/hue/desktop/conf/hue-overrides.ini
+      - hue:/hue
     links:
       - huedb
 
   superset:
     image: apache/superset:latest
     platform: linux/amd64
+    depends_on:
+      - hive-server
     environment:
       SUPERSET_ENV: production
       SUPERSET_LOAD_EXAMPLES: "no"
       SUPERSET_SECRET_KEY: "thisISaSECRET_1234"
       SQLALCHEMY_DATABASE_URI: "sqlite:////var/lib/superset/superset.db"
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: admin
     ports:
       - "8088:8088"
     volumes:
@@ -129,8 +123,56 @@ services:
       superset run -h 0.0.0.0 -p 8088
       "
 
+  spark:
+    image: bde2020/spark-master:2.4.0-hadoop2.7
+    platform: linux/amd64
+    depends_on:
+      - hive-server
+    environment:
+      - INIT_DAEMON_STEP=spark
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+
+  spark-worker:
+    image: bde2020/spark-worker:2.4.0-hadoop2.7
+    platform: linux/amd64
+    depends_on:
+      - hive-server
+    environment:
+      - SPARK_MASTER=spark://spark:7077
+      - INIT_DAEMON_STEP=spark-worker
+    ports:
+      - "8081:8081"
+
 volumes:
   namenode:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ./data/namenode
   datanode:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ./data/datanode
   pg_data:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ./data/pg_data
   superset:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ./data/superset
+  hue:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ./data/hue
