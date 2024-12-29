@@ -12,7 +12,7 @@ services:
       - ./configs/hadoop-hive.env
     ports:
       - "50070:50070"
-
+    
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
     platform: linux/amd64
@@ -33,6 +33,17 @@ services:
     env_file:
       - ./configs/hadoop-hive.env
 
+  hive-server:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    platform: linux/amd64
+    env_file:
+      - ./configs/hadoop-hive.env
+    environment:
+      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
+      SERVICE_PRECONDITION: "hive-metastore:9083"
+    ports:
+      - "10000:10000"
+
   hive-metastore:
     image: bde2020/hive:2.3.2-postgresql-metastore
     platform: linux/amd64
@@ -50,32 +61,9 @@ services:
     ports:
       - "5432:5432"
 
-  hive-server:
-    image: bde2020/hive:2.3.2-postgresql-metastore
-    platform: linux/amd64
-    depends_on:
-      - hive-metastore
-      - hive-metastore-postgresql
-      - resourcemanager
-      - datanode
-      - namenode
-    env_file:
-      - ./configs/hadoop-hive.env
-    environment:
-      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
-      SERVICE_PRECONDITION: "hive-metastore:9083"
-      HIVE_AUX_JARS_PATH: "/opt/hive/auxlib/iceberg-hive-runtime.jar"
-      HIVE_EXECUTION_ENGINE: "spark"
-    ports:
-      - "10000:10000"
-    volumes:
-      - ./configs/iceberg-hive-runtime.jar:/opt/hive/auxlib/iceberg-hive-runtime.jar
-
   huedb:
     image: postgres:12.1-alpine
     platform: linux/amd64
-    depends_on:
-      - hive-server
     volumes:
       - pg_data:/var/lib/postgresl/data/
     ports:
@@ -83,21 +71,17 @@ services:
     env_file:
       - ./configs/hadoop-hive.env
     environment:
-      SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432 resourcemanager:8088 hive-metastore:9083"
-
+        SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432 resourcemanager:8088 hive-metastore:9083"
+  
   hue:
     image: gethue/hue:4.6.0
     platform: linux/amd64
-    depends_on:
-      - huedb
-      - hive-server
     environment:
-      SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432 resourcemanager:8088 hive-metastore:9083 huedb:5000"
+        SERVICE_PRECONDITION: "namenode:50070 datanode:50075 hive-metastore-postgresql:5432 resourcemanager:8088 hive-metastore:9083 huedb:5000"
     ports:
       - "8888:8888"
     volumes:
       - ./configs/hue-overrides.ini:/usr/share/hue/desktop/conf/hue-overrides.ini
-      - hue:/hue
     links:
       - huedb
 
@@ -122,28 +106,6 @@ services:
       superset init &&
       superset run -h 0.0.0.0 -p 8088
       "
-
-  spark:
-    image: bde2020/spark-master:2.4.0-hadoop2.7
-    platform: linux/amd64
-    depends_on:
-      - hive-server
-    environment:
-      - INIT_DAEMON_STEP=spark
-    ports:
-      - "8080:8080"
-      - "7077:7077"
-
-  spark-worker:
-    image: bde2020/spark-worker:2.4.0-hadoop2.7
-    platform: linux/amd64
-    depends_on:
-      - hive-server
-    environment:
-      - SPARK_MASTER=spark://spark:7077
-      - INIT_DAEMON_STEP=spark-worker
-    ports:
-      - "8081:8081"
 
 volumes:
   namenode:

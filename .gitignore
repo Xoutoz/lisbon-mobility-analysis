@@ -12,3 +12,5 @@ dbt/
 
 # MacOS file system hidden file
 .DS_Store
+
+url.txt
