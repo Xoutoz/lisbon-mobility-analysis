@@ -1,8 +1,3 @@
--- Set Hive to allow dynamic partitioning and disable strict checks for Cartesian products
-set hive.strict.checks.cartesian.product=false;
-set hive.mapred.mode=nonstrict;
-set hive.exec.dynamic.partition.mode=nonstrict;
-
 create database if not exists curated;
 
 create table if not exists curated.accidents (

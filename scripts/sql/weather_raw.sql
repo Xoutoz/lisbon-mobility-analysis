@@ -40,3 +40,5 @@ row format serde 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
 stored as textfile
 location '/user/raw/weather/csv'
 tblproperties ('skip.header.line.count'='1');
+
+msck repair table raw.weather;

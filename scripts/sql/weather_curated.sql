@@ -1,5 +1,3 @@
-set hive.exec.dynamic.partition.mode=nonstrict;
-
 create database if not exists curated;
 
 create table if not exists curated.weather (
